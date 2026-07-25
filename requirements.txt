@@ -1,0 +1,4 @@
+pytest
+bandit
+jinja2
+google-genai

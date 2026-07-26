@@ -19,15 +19,11 @@
                 <p class="text-slate-400 text-sm mt-1">Automated Security Inspection & Gemini LLM Code Review</p>
             </div>
             <div class="mt-4 md:mt-0 flex items-center gap-3">
-                {% if status == 'PASSED' %}
-                <span class="px-4 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-sm font-semibold">
-                    STATUS: PASSED ✅
-                </span>
-                {% else %}
+                
                 <span class="px-4 py-1.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/30 text-sm font-semibold">
                     STATUS: ACTION REQUIRED ⚠️
                 </span>
-                {% endif %}
+                
             </div>
         </header>
 
@@ -35,11 +31,11 @@
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
                 <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Security Score</p>
-                <p class="text-3xl font-extrabold mt-1 text-sky-400">{{ security_score }} / 100</p>
+                <p class="text-3xl font-extrabold mt-1 text-sky-400">70 / 100</p>
             </div>
             <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
                 <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Flaws Detected (Bandit)</p>
-                <p class="text-3xl font-extrabold mt-1 text-rose-400">{{ total_flaws }}</p>
+                <p class="text-3xl font-extrabold mt-1 text-rose-400">2</p>
             </div>
             <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
                 <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">AI Review Engine</p>
@@ -49,33 +45,39 @@
 
         <!-- MAIN CONTENT GRID -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-           
 
             <!-- BANDIT SAST RESULTS -->
             <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 space-y-4">
                 <h2 class="text-lg font-bold text-sky-300 flex items-center gap-2">
                     🔍 Bandit Static Code Scan
                 </h2>
-                {% if bandit_issues %}
+                
                     <div class="space-y-3">
-                        {% for issue in bandit_issues %}
+                        
                         <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-sm">
                             <div class="flex justify-between items-center mb-1">
-                                <span class="font-mono font-semibold text-rose-400">{{ issue.test_id }}: {{ issue.test_name }}</span>
+                                <span class="font-mono font-semibold text-rose-400">B105: hardcoded_password_string</span>
                                 <span class="px-2 py-0.5 text-xs rounded bg-rose-500/20 text-rose-300 font-bold">
-                                    {{ issue.issue_severity }}
+                                    LOW
                                 </span>
                             </div>
-                            <p class="text-slate-300">{{ issue.issue_text }}</p>
-                            <p class="text-xs text-slate-500 mt-2 font-mono">File: {{ issue.filename }} (Line {{ issue.line_number }})</p>
+                            <p class="text-slate-300">Possible hardcoded password: 'sk_live_998877665544332211_PRODUCTION_KEY'</p>
+                            <p class="text-xs text-slate-500 mt-2 font-mono">File: .\app.py (Line 5)</p>
                         </div>
-                        {% endfor %}
+                        
+                        <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-sm">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-mono font-semibold text-rose-400">B605: start_process_with_a_shell</span>
+                                <span class="px-2 py-0.5 text-xs rounded bg-rose-500/20 text-rose-300 font-bold">
+                                    HIGH
+                                </span>
+                            </div>
+                            <p class="text-slate-300">Starting a process with a shell, possible injection detected, security issue.</p>
+                            <p class="text-xs text-slate-500 mt-2 font-mono">File: .\app.py (Line 20)</p>
+                        </div>
+                        
                     </div>
-                {% else %}
-                    <div class="bg-emerald-950/30 p-4 rounded-lg border border-emerald-800/50 text-emerald-300 text-sm">
-                        🎉 No static security issues detected by Bandit!
-                    </div>
-                {% endif %}
+                
             </div>
 
             <!-- GEMINI AI CODE REVIEW -->
@@ -86,30 +88,40 @@
                 
                 <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
                     <p class="text-xs text-slate-400 font-bold uppercase mb-1">Executive Summary</p>
-                    <p class="text-sm text-slate-200 leading-relaxed">{{ ai_review.summary }}</p>
+                    <p class="text-sm text-slate-200 leading-relaxed">The provided Python code snippet implements basic functionality but contains critical security vulnerabilities. Immediate remediation is required to address hardcoded credentials and a severe command injection risk.</p>
                 </div>
 
-                {% if ai_review.security_flaws %}
+                
                 <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
                     <p class="text-xs text-amber-400 font-bold uppercase mb-2">Flagged Security Vulnerabilities</p>
                     <ul class="list-disc list-inside text-sm text-slate-300 space-y-1">
-                        {% for flaw in ai_review.security_flaws %}
-                        <li>{{ flaw }}</li>
-                        {% endfor %}
+                        
+                        <li>Hardcoded sensitive API key (SECRET_API_KEY) directly in the source code, making it vulnerable to exposure.</li>
+                        
+                        <li>Command injection vulnerability in `run_system_health_check` due to the use of `os.system` with unsanitized, user-controlled input (`target_host`).</li>
+                        
                     </ul>
                 </div>
-                {% endif %}
+                
 
-                {% if ai_review.code_suggestions %}
+                
                 <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
                     <p class="text-xs text-emerald-400 font-bold uppercase mb-2">Recommended Fixes & Refactoring</p>
                     <ul class="list-disc list-inside text-sm text-slate-300 space-y-1">
-                        {% for suggestion in ai_review.code_suggestions %}
-                        <li>{{ suggestion }}</li>
-                        {% endfor %}
+                        
+                        <li>Load `SECRET_API_KEY` from environment variables (e.g., `os.getenv('SECRET_API_KEY')`) or a secure secret management system instead of hardcoding.</li>
+                        
+                        <li>Refactor `run_system_health_check` to use the `subprocess` module (e.g., `subprocess.run(['ping', '-c', '1', target_host])`) with `shell=False` to prevent command injection. Ensure `target_host` is treated as data, not part of the shell command.</li>
+                        
+                        <li>Simplify the discount calculation in `calculate_discount` to `price * (1 - discount_percent / 100)` for better readability and slightly improved performance.</li>
+                        
+                        <li>Consider using `decimal.Decimal` for financial calculations in `calculate_discount` to mitigate floating-point precision issues, especially in production environments dealing with monetary values.</li>
+                        
+                        <li>Add type hints to function signatures (e.g., `calculate_discount(price: float, discount_percent: float) -> float`) for improved code clarity and maintainability.</li>
+                        
                     </ul>
                 </div>
-                {% endif %}
+                
             </div>
 
         </div>

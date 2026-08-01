@@ -7,55 +7,83 @@ pool:
   vmImage: 'ubuntu-latest'
 
 steps:
-# 1. Set up Python environment
-- task: UsePythonVersion@0
-  inputs:
-    versionSpec: '3.11'
-    addToPath: true
-  displayName: '1. Setup Python 3.11 Environment'
+  # 1. Set up Python environment
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+      addToPath: true
+    displayName: '1. Setup Python 3.11 Environment'
 
-# 2. Install Dependencies
-- script: |
-    python -m pip install --upgrade pip
-    pip install -r requirements.txt
-  displayName: '2. Install Required Python Packages'
+  # 2. Install Dependencies
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+    displayName: '2. Install Required Python Packages'
 
-# 3. Run Unit Tests (pytest)
-- script: |
-    pytest test_app.py --junitxml=test-results.xml
-  displayName: '3. Run Unit Tests (pytest)'
+  # 3. Run Unit Tests (pytest)
+  - script: |
+      pytest test_app.py --junitxml=test-results.xml
+    displayName: '3. Run Unit Tests (pytest)'
 
-# 4. Run Bandit Static Application Security Testing (SAST)
-- script: |
-    # Run bandit scan and export findings to JSON (use || true to prevent pipeline crash on security warnings)
-    bandit -r app.py -f json -o bandit_results.json || true
-  displayName: '4. Run Bandit Security Scanner'
+  # 4. Run Bandit Static Application Security Testing (SAST)
+  - script: |
+      # Always export the full JSON report first, regardless of findings,
+      # so later steps (AI review, dashboard) have it available.
+      bandit -r app.py -f json -o bandit_results.json || true
+    displayName: '4. Run Bandit Security Scanner'
 
-# 5. Run Gemini AI Code Review Script
-- script: |
-    python review_code.py
-  env:
-    GEMINI_API_KEY: $(GEMINI_API_KEY)
-  displayName: '5. Execute Gemini AI Code Review'
+  # 4b. Fail the build if Bandit found any HIGH severity issue.
+  # Low/medium findings are still surfaced in the report but don't block the pipeline.
+  - script: |
+      python - <<'EOF'
+      import json, sys
 
-# 6. Build the HTML Audit Report Dashboard
-- script: |
-    python generate_report.py
-  displayName: '6. Generate HTML Audit Dashboard'
+      with open("bandit_results.json") as f:
+          data = json.load(f)
 
-# 7. Publish Test Results to Azure DevOps Summary Screen
-- task: PublishTestResults@2
-  condition: always()
-  inputs:
-    testResultsFormat: 'JUnit'
-    testResultsFiles: 'test-results.xml'
-    failTaskOnFailedTests: true
-  displayName: '7. Publish Unit Test Results'
+      high_severity = [
+          r for r in data.get("results", [])
+          if r.get("issue_severity") == "HIGH"
+      ]
 
-# 8. Publish the Generated HTML Web App as a Pipeline Artifact
-- task: PublishPipelineArtifact@1
-  inputs:
-    targetPath: 'index.html'
-    artifact: 'DevSecOps_AI_Report'
-    publishLocation: 'pipeline'
-  displayName: '8. Publish HTML Report Artifact'
+      if high_severity:
+          print(f"❌ {len(high_severity)} HIGH severity issue(s) found:")
+          for issue in high_severity:
+              print(f"  - {issue['test_id']} ({issue['filename']}:{issue['line_number']}): {issue['issue_text']}")
+          sys.exit(1)
+      else:
+          print("✅ No HIGH severity Bandit findings.")
+      EOF
+    displayName: '4b. Enforce High-Severity Security Gate'
+
+  # 5. Run Gemini AI Code Review Script
+  - script: |
+      python review_code.py
+    env:
+      GEMINI_API_KEY: $(GEMINI_API_KEY)
+    displayName: '5. Execute Gemini AI Code Review'
+    condition: always()
+
+  # 6. Build the HTML Audit Report Dashboard
+  - script: |
+      python generate_report.py
+    displayName: '6. Generate HTML Audit Dashboard'
+    condition: always()
+
+  # 7. Publish Test Results to Azure DevOps Summary Screen
+  - task: PublishTestResults@2
+    condition: always()
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: 'test-results.xml'
+      failTaskOnFailedTests: true
+    displayName: '7. Publish Unit Test Results'
+
+  # 8. Publish the Generated HTML Web App as a Pipeline Artifact
+  - task: PublishPipelineArtifact@1
+    condition: always()
+    inputs:
+      targetPath: 'index.html'
+      artifact: 'DevSecOps_AI_Report'
+      publishLocation: 'pipeline'
+    displayName: '8. Publish HTML Report Artifact'

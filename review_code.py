@@ -2,35 +2,34 @@ import os
 import json
 import sys
 from google import genai
+from google.genai import errors as genai_errors
+
 
 def review_code_with_gemini():
     # Fetch the API key from environment variables (will be set in pipeline/local terminal)
     api_key = os.getenv("GEMINI_API_KEY")
-    
+
     if not api_key:
         print("⚠️ Warning: GEMINI_API_KEY environment variable not set.")
-        # Provide a fallback message for testing without API key
         fallback_review = {
             "summary": "Skipped AI Review: GEMINI_API_KEY is missing.",
-            "suggestions": ["Set GEMINI_API_KEY to enable automated AI code reviews."]
+            "security_flaws": [],
+            "code_suggestions": ["Set GEMINI_API_KEY to enable automated AI code reviews."]
         }
         with open("ai_review.json", "w") as f:
             json.dump(fallback_review, f, indent=2)
         return
 
-    # Check if target app file exists
     target_file = "app.py"
     if not os.path.exists(target_file):
         print(f"Error: {target_file} not found.")
         sys.exit(1)
 
-    # Read the contents of app.py
     with open(target_file, "r") as f:
         source_code = f.read()
 
     print(f"🔍 Sending {target_file} to Gemini API for AI code review...")
 
-    # Initialize Gemini Client using google-genai library
     client = genai.Client(api_key=api_key)
 
     prompt = f"""
@@ -51,25 +50,46 @@ def review_code_with_gemini():
     """
 
     try:
-        # Call Gemini 2.5 Flash model
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt
         )
-        
-        # Clean up response text in case markdown blocks are returned
+
         cleaned_text = response.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         review_data = json.loads(cleaned_text)
 
-        # Save AI review to JSON file
         with open("ai_review.json", "w") as f:
             json.dump(review_data, f, indent=2)
 
         print("✅ Gemini AI code review successfully saved to ai_review.json!")
 
+    except genai_errors.ClientError as e:
+        # 400 FAILED_PRECONDITION with "User location is not supported" means the
+        # calling IP (e.g. the Azure hosted build agent's datacenter) is in a region
+        # Google's Generative Language API doesn't serve — not an issue with the
+        # key, the code, or the pipeline logic itself.
+        if "FAILED_PRECONDITION" in str(e) or "not supported" in str(e).lower():
+            print(f"❌ Gemini API rejected the request due to a region restriction: {e}")
+            error_data = {
+                "summary": "AI review unavailable: Gemini API is not accessible from this build agent's region.",
+                "security_flaws": [],
+                "code_suggestions": [
+                    "This is a known Google API region restriction on the hosted CI agent's IP, not an issue with the pipeline or the code. "
+                    "Re-run the pipeline (agent region can vary between runs) or switch to Vertex AI with an explicit region to avoid this."
+                ]
+            }
+        else:
+            print(f"❌ Error during Gemini API call: {e}")
+            error_data = {
+                "summary": f"AI Review Error: {str(e)}",
+                "security_flaws": ["Unable to complete AI scan."],
+                "code_suggestions": ["Verify API key and network connectivity."]
+            }
+        with open("ai_review.json", "w") as f:
+            json.dump(error_data, f, indent=2)
+
     except Exception as e:
         print(f"❌ Error during Gemini API call: {e}")
-        # Save error state so pipeline still completes gracefully
         error_data = {
             "summary": f"AI Review Error: {str(e)}",
             "security_flaws": ["Unable to complete AI scan."],
@@ -77,6 +97,7 @@ def review_code_with_gemini():
         }
         with open("ai_review.json", "w") as f:
             json.dump(error_data, f, indent=2)
+
 
 if __name__ == "__main__":
     review_code_with_gemini()

@@ -62,7 +62,7 @@ steps:
   # 6. Scan the image with Trivy
   - script: |
       curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-      trivy image --format json --output trivy_results.json devsecops-ai-platform:$(Build.BuildId) || true
+      trivy image --severity HIGH,CRITICAL --ignore-unfixed --format json --output trivy_results.json devsecops-ai-platform:$(Build.BuildId) || true
     displayName: '6. Run Trivy Container Scan'
     condition: always()
 

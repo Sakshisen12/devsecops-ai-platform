@@ -97,7 +97,7 @@
                 {% endif %}
 
                 {% if trivy_issues %}
-                    <p class="text-xs text-slate-400">Showing HIGH/CRITICAL findings only. MEDIUM/LOW OS-package CVEs are summarized above, not listed individually.</p>
+                    <p class="text-xs text-slate-400">Scanned for HIGH/CRITICAL, fixable vulnerabilities only (--ignore-unfixed). No patch = no fix to apply, so those are excluded rather than padding this count.</p>
                     <div class="space-y-3 max-h-96 overflow-y-auto pr-1">
                         {% for issue in trivy_issues %}
                         <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-sm">

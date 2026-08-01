@@ -8,7 +8,11 @@ from jinja2 import Environment, FileSystemLoader
 # move the score. HIGH/CRITICAL findings (in either tool) are what should
 # actually tank it.
 BANDIT_WEIGHTS = {"HIGH": 15, "MEDIUM": 7, "LOW": 2}
-TRIVY_WEIGHTS = {"CRITICAL": 15, "HIGH": 7, "MEDIUM": 2, "LOW": 0}
+# The pipeline now scans with --severity HIGH,CRITICAL --ignore-unfixed, so
+# MEDIUM/LOW and no-fix-available CVEs are filtered out before this even runs.
+# What's left is a small list of things that are both serious and actionable,
+# so each one is weighted more heavily than before.
+TRIVY_WEIGHTS = {"CRITICAL": 25, "HIGH": 10, "MEDIUM": 2, "LOW": 0}
 
 
 def build_report():
@@ -68,13 +72,20 @@ def build_report():
     ]
 
     # --- Severity-weighted security score ---
-    deductions = 0
-    for issue in bandit_issues:
-        deductions += BANDIT_WEIGHTS.get(issue.get("issue_severity", ""), 5)
-    for issue in trivy_issues:
-        deductions += TRIVY_WEIGHTS.get(issue["severity"], 1)
+    # Code and container findings are scored as two separate 100-point pools,
+    # then averaged. Scoring them from one shared pool lets a noisy base-image
+    # CVE count (often outside your control — no fix available upstream yet)
+    # drown out a genuinely clean codebase, which isn't a fair signal.
+    bandit_deductions = sum(
+        BANDIT_WEIGHTS.get(issue.get("issue_severity", ""), 5) for issue in bandit_issues
+    )
+    trivy_deductions = sum(
+        TRIVY_WEIGHTS.get(issue["severity"], 1) for issue in trivy_issues
+    )
 
-    security_score = max(0, 100 - deductions)
+    code_score = max(0, 100 - bandit_deductions)
+    container_score = max(0, 100 - trivy_deductions)
+    security_score = round((code_score + container_score) / 2)
 
     # Build fails on HIGH bandit / CRITICAL trivy already (pipeline gates) —
     # this status reflects that same bar for the dashboard badge.

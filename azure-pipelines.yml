@@ -27,13 +27,10 @@ steps:
 
   # 4. Run Bandit Static Application Security Testing (SAST)
   - script: |
-      # Always export the full JSON report first, regardless of findings,
-      # so later steps (AI review, dashboard) have it available.
       bandit -r app.py -f json -o bandit_results.json || true
     displayName: '4. Run Bandit Security Scanner'
 
   # 4b. Fail the build if Bandit found any HIGH severity issue.
-  # Low/medium findings are still surfaced in the report but don't block the pipeline.
   - script: |
       python - <<'EOF'
       import json, sys
@@ -54,36 +51,77 @@ steps:
       else:
           print("✅ No HIGH severity Bandit findings.")
       EOF
-    displayName: '4b. Enforce High-Severity Security Gate'
+    displayName: '4b. Enforce High-Severity Security Gate (Bandit)'
 
-  # 5. Run Gemini AI Code Review Script
+  # 5. Build the container image
+  - script: |
+      docker build -t devsecops-ai-platform:$(Build.BuildId) .
+    displayName: '5. Build Docker Image'
+    condition: always()
+
+  # 6. Scan the image with Trivy
+  - script: |
+      curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+      trivy image --format json --output trivy_results.json devsecops-ai-platform:$(Build.BuildId) || true
+    displayName: '6. Run Trivy Container Scan'
+    condition: always()
+
+  # 6b. Fail the build if Trivy found any CRITICAL vulnerability.
+  - script: |
+      python - <<'EOF'
+      import json, sys
+
+      try:
+          with open("trivy_results.json") as f:
+              data = json.load(f)
+      except FileNotFoundError:
+          print("⚠️ trivy_results.json not found, skipping gate.")
+          sys.exit(0)
+
+      critical = []
+      for result in data.get("Results", []):
+          for vuln in result.get("Vulnerabilities", []) or []:
+              if vuln.get("Severity") == "CRITICAL":
+                  critical.append(vuln)
+
+      if critical:
+          print(f"❌ {len(critical)} CRITICAL vulnerability(ies) found in image:")
+          for v in critical:
+              print(f"  - {v.get('VulnerabilityID')} in {v.get('PkgName')}: {v.get('Title', 'no title')}")
+          sys.exit(1)
+      else:
+          print("✅ No CRITICAL Trivy findings.")
+      EOF
+    displayName: '6c. Enforce Critical-Severity Security Gate (Trivy)'
+
+  # 7. Run Gemini AI Code Review Script
   - script: |
       python review_code.py
     env:
       GEMINI_API_KEY: $(GEMINI_API_KEY)
-    displayName: '5. Execute Gemini AI Code Review'
+    displayName: '7. Execute Gemini AI Code Review'
     condition: always()
 
-  # 6. Build the HTML Audit Report Dashboard
+  # 8. Build the HTML Audit Report Dashboard
   - script: |
       python generate_report.py
-    displayName: '6. Generate HTML Audit Dashboard'
+    displayName: '8. Generate HTML Audit Dashboard'
     condition: always()
 
-  # 7. Publish Test Results to Azure DevOps Summary Screen
+  # 9. Publish Test Results to Azure DevOps Summary Screen
   - task: PublishTestResults@2
     condition: always()
     inputs:
       testResultsFormat: 'JUnit'
       testResultsFiles: 'test-results.xml'
       failTaskOnFailedTests: true
-    displayName: '7. Publish Unit Test Results'
+    displayName: '9. Publish Unit Test Results'
 
-  # 8. Publish the Generated HTML Web App as a Pipeline Artifact
+  # 10. Publish the Generated HTML Web App as a Pipeline Artifact
   - task: PublishPipelineArtifact@1
     condition: always()
     inputs:
       targetPath: 'index.html'
       artifact: 'DevSecOps_AI_Report'
       publishLocation: 'pipeline'
-    displayName: '8. Publish HTML Report Artifact'
+    displayName: '10. Publish HTML Report Artifact'

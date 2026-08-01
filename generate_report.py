@@ -2,6 +2,15 @@ import json
 import os
 from jinja2 import Environment, FileSystemLoader
 
+# Severity weights used to compute the security score.
+# Trivy scans of any real base image turn up dozens of LOW/MEDIUM OS-package
+# CVEs that aren't practically exploitable in this context, so those barely
+# move the score. HIGH/CRITICAL findings (in either tool) are what should
+# actually tank it.
+BANDIT_WEIGHTS = {"HIGH": 15, "MEDIUM": 7, "LOW": 2}
+TRIVY_WEIGHTS = {"CRITICAL": 15, "HIGH": 7, "MEDIUM": 2, "LOW": 0}
+
+
 def build_report():
     print("📊 Generating HTML Security Audit Dashboard...")
 
@@ -23,11 +32,11 @@ def build_report():
                 trivy_data = json.load(f)
                 results = trivy_data.get("Results", [])
                 for res in results:
-                    for vuln in res.get("Vulnerabilities", []):
+                    for vuln in res.get("Vulnerabilities", []) or []:
                         trivy_issues.append({
                             "id": vuln.get("VulnerabilityID"),
                             "pkg": vuln.get("PkgName"),
-                            "severity": vuln.get("Severity"),
+                            "severity": vuln.get("Severity", "UNKNOWN"),
                             "title": vuln.get("Title", "No title provided")
                         })
         except Exception as e:
@@ -42,9 +51,38 @@ def build_report():
         except Exception as e:
             print(f"Error reading ai_review.json: {e}")
 
-    total_flaws = len(bandit_issues) + len(trivy_issues)
-    security_score = max(0, 100 - (len(bandit_issues) * 15) - (len(trivy_issues) * 5))
-    status = "PASSED" if total_flaws == 0 else "ACTION REQUIRED"
+    # --- Counts ---
+    bandit_count = len(bandit_issues)
+    trivy_count = len(trivy_issues)
+    total_flaws = bandit_count + trivy_count
+
+    trivy_severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
+    for issue in trivy_issues:
+        sev = issue["severity"] if issue["severity"] in trivy_severity_counts else "UNKNOWN"
+        trivy_severity_counts[sev] += 1
+
+    # Only surface HIGH/CRITICAL Trivy findings in the detail list — LOW/MEDIUM
+    # OS-package noise is summarized as a count instead of listed line by line.
+    trivy_issues_notable = [
+        i for i in trivy_issues if i["severity"] in ("CRITICAL", "HIGH")
+    ]
+
+    # --- Severity-weighted security score ---
+    deductions = 0
+    for issue in bandit_issues:
+        deductions += BANDIT_WEIGHTS.get(issue.get("issue_severity", ""), 5)
+    for issue in trivy_issues:
+        deductions += TRIVY_WEIGHTS.get(issue["severity"], 1)
+
+    security_score = max(0, 100 - deductions)
+
+    # Build fails on HIGH bandit / CRITICAL trivy already (pipeline gates) —
+    # this status reflects that same bar for the dashboard badge.
+    has_blocking_findings = (
+        any(i.get("issue_severity") == "HIGH" for i in bandit_issues)
+        or trivy_severity_counts["CRITICAL"] > 0
+    )
+    status = "ACTION REQUIRED" if has_blocking_findings else "PASSED"
 
     # Render Jinja2 HTML Template
     env = Environment(loader=FileSystemLoader("."))
@@ -54,8 +92,11 @@ def build_report():
         status=status,
         security_score=security_score,
         total_flaws=total_flaws,
+        bandit_count=bandit_count,
+        trivy_count=trivy_count,
         bandit_issues=bandit_issues,
-        trivy_issues=trivy_issues,
+        trivy_issues=trivy_issues_notable,
+        trivy_severity_counts=trivy_severity_counts,
         ai_review=ai_review
     )
 
@@ -63,6 +104,7 @@ def build_report():
         f.write(html_content)
 
     print("✅ Dashboard successfully updated with Trivy container findings!")
+
 
 if __name__ == "__main__":
     build_report()

@@ -16,7 +16,7 @@
                 <h1 class="text-2xl font-bold flex items-center gap-2">
                     🛡️ DevSecOps & AI Code Audit Dashboard
                 </h1>
-                <p class="text-slate-400 text-sm mt-1">Automated Security Inspection & Gemini LLM Code Review</p>
+                <p class="text-slate-400 text-sm mt-1">Automated Security Inspection, Container Scanning & Gemini LLM Code Review</p>
             </div>
             <div class="mt-4 md:mt-0 flex items-center gap-3">
                 {% if status == 'PASSED' %}
@@ -32,24 +32,27 @@
         </header>
 
         <!-- QUICK METRICS BAR -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
                 <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Security Score</p>
                 <p class="text-3xl font-extrabold mt-1 text-sky-400">{{ security_score }} / 100</p>
             </div>
             <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
-                <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Flaws Detected (Bandit)</p>
-                <p class="text-3xl font-extrabold mt-1 text-rose-400">{{ total_flaws }}</p>
+                <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Code Flaws (Bandit)</p>
+                <p class="text-3xl font-extrabold mt-1 text-rose-400">{{ bandit_count }}</p>
+            </div>
+            <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
+                <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Container CVEs (Trivy)</p>
+                <p class="text-3xl font-extrabold mt-1 text-amber-400">{{ trivy_count }}</p>
             </div>
             <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
                 <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">AI Review Engine</p>
-                <p class="text-3xl font-extrabold mt-1 text-indigo-400">Gemini 2.5 Flash</p>
+                <p class="text-xl font-extrabold mt-1 text-indigo-400">Gemini 2.5 Flash</p>
             </div>
         </div>
 
         <!-- MAIN CONTENT GRID -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-           
 
             <!-- BANDIT SAST RESULTS -->
             <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 space-y-4">
@@ -78,38 +81,77 @@
                 {% endif %}
             </div>
 
-            <!-- GEMINI AI CODE REVIEW -->
+            <!-- TRIVY CONTAINER SCAN RESULTS -->
             <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 space-y-4">
+                <h2 class="text-lg font-bold text-amber-300 flex items-center gap-2">
+                    📦 Trivy Container Scan
+                </h2>
+
+                {% if trivy_severity_counts %}
+                <div class="flex flex-wrap gap-2 text-xs font-semibold">
+                    <span class="px-2 py-1 rounded bg-rose-500/20 text-rose-300">CRITICAL: {{ trivy_severity_counts.CRITICAL }}</span>
+                    <span class="px-2 py-1 rounded bg-orange-500/20 text-orange-300">HIGH: {{ trivy_severity_counts.HIGH }}</span>
+                    <span class="px-2 py-1 rounded bg-yellow-500/20 text-yellow-300">MEDIUM: {{ trivy_severity_counts.MEDIUM }}</span>
+                    <span class="px-2 py-1 rounded bg-slate-500/20 text-slate-300">LOW: {{ trivy_severity_counts.LOW }}</span>
+                </div>
+                {% endif %}
+
+                {% if trivy_issues %}
+                    <p class="text-xs text-slate-400">Showing HIGH/CRITICAL findings only. MEDIUM/LOW OS-package CVEs are summarized above, not listed individually.</p>
+                    <div class="space-y-3 max-h-96 overflow-y-auto pr-1">
+                        {% for issue in trivy_issues %}
+                        <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700 text-sm">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-mono font-semibold text-amber-400">{{ issue.id }} · {{ issue.pkg }}</span>
+                                <span class="px-2 py-0.5 text-xs rounded bg-rose-500/20 text-rose-300 font-bold">
+                                    {{ issue.severity }}
+                                </span>
+                            </div>
+                            <p class="text-slate-300">{{ issue.title }}</p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="bg-emerald-950/30 p-4 rounded-lg border border-emerald-800/50 text-emerald-300 text-sm">
+                        🎉 No HIGH/CRITICAL container vulnerabilities detected!
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- GEMINI AI CODE REVIEW -->
+            <div class="bg-slate-800 p-6 rounded-xl border border-slate-700 space-y-4 lg:col-span-2">
                 <h2 class="text-lg font-bold text-indigo-300 flex items-center gap-2">
                     🤖 Gemini AI Senior Engineer Review
                 </h2>
-                
+
                 <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
                     <p class="text-xs text-slate-400 font-bold uppercase mb-1">Executive Summary</p>
                     <p class="text-sm text-slate-200 leading-relaxed">{{ ai_review.summary }}</p>
                 </div>
 
-                {% if ai_review.security_flaws %}
-                <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
-                    <p class="text-xs text-amber-400 font-bold uppercase mb-2">Flagged Security Vulnerabilities</p>
-                    <ul class="list-disc list-inside text-sm text-slate-300 space-y-1">
-                        {% for flaw in ai_review.security_flaws %}
-                        <li>{{ flaw }}</li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% endif %}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {% if ai_review.security_flaws %}
+                    <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
+                        <p class="text-xs text-amber-400 font-bold uppercase mb-2">Flagged Security Vulnerabilities</p>
+                        <ul class="list-disc list-inside text-sm text-slate-300 space-y-1">
+                            {% for flaw in ai_review.security_flaws %}
+                            <li>{{ flaw }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
 
-                {% if ai_review.code_suggestions %}
-                <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
-                    <p class="text-xs text-emerald-400 font-bold uppercase mb-2">Recommended Fixes & Refactoring</p>
-                    <ul class="list-disc list-inside text-sm text-slate-300 space-y-1">
-                        {% for suggestion in ai_review.code_suggestions %}
-                        <li>{{ suggestion }}</li>
-                        {% endfor %}
-                    </ul>
+                    {% if ai_review.code_suggestions %}
+                    <div class="bg-slate-900/80 p-4 rounded-lg border border-slate-700">
+                        <p class="text-xs text-emerald-400 font-bold uppercase mb-2">Recommended Fixes & Refactoring</p>
+                        <ul class="list-disc list-inside text-sm text-slate-300 space-y-1">
+                            {% for suggestion in ai_review.code_suggestions %}
+                            <li>{{ suggestion }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
             </div>
 
         </div>

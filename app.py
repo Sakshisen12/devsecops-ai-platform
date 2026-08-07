@@ -1,8 +1,11 @@
 import os
+import re
+import subprocess
 
-# 🚨 SECURITY FLAW #1: Hardcoded sensitive secret key
-# Bandit scanner will flag this as a hardcoded credential risk.
-SECRET_API_KEY = "sk_live_998877665544332211_PRODUCTION_KEY"
+
+# Secret is now read from the environment instead of hardcoded in source.
+# Set SECRET_API_KEY as a pipeline/library secret variable, never commit it.
+SECRET_API_KEY = os.environ.get("SECRET_API_KEY", "")
 
 
 def calculate_discount(price, discount_percent):
@@ -13,12 +16,21 @@ def calculate_discount(price, discount_percent):
 
 
 def run_system_health_check(target_host):
-    """Checks host health."""
-    # 🚨 SECURITY FLAW #2: Command Injection Risk
-    # Bandit will flag 'os.system' or shell execution with unformatted inputs
-    cmd = f"ping -c 1 {target_host}"
-    status = os.system(cmd)
-    return status == 0
+    """Checks host health by pinging target_host once.
+
+    target_host is validated against a strict hostname/IP pattern and passed
+    to subprocess as an argument list (no shell=True), so it can't be used
+    to inject arbitrary shell commands.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9.\-]+", target_host):
+        raise ValueError(f"Invalid host: {target_host!r}")
+
+    result = subprocess.run(
+        ["ping", "-c", "1", target_host],
+        capture_output=True,
+        timeout=5,
+    )
+    return result.returncode == 0
 
 
 if __name__ == "__main__":
